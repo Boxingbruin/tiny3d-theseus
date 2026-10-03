@@ -106,16 +106,8 @@ static void set_texture(T3DMaterial *mat, rdpq_tile_t tile, T3DModelDrawConf *co
   if(tex->texPath || tex->texReference)
   {
     //debugf("Load Texture: %s (%08lX)\n", tex->texPath, tex->textureHash);
-    if(tex->texPath && !tex->texture) {
-      tex->texture = texture_cache_get(tex->textureHash);
-      if(tex->texture == NULL) {
-        //debugf("Not in cache, load %s (%08lX)\n", tex->texPath, tex->textureHash);
-        tex->texture = sprite_load(tex->texPath);
-        //const char* formatName = tex_format_name(sprite_get_format(mat->texture));
-        //debugf(" -> %s\n", formatName);
-        texture_cache_add(tex->textureHash, tex->texture);
-      }
-    }
+    // Model loading owns file I/O, decompression and texture-cache allocation.
+    assertf(!tex->texPath || tex->texture, "Model texture is not resident");
 
     rdpq_texparms_t texParam = (rdpq_texparms_t){};
     texParam.s.translate = tex->s.low;
@@ -233,6 +225,17 @@ T3DModel *t3d_model_load(const char *path) {
       if(mat->name)mat->name += (uint32_t)model->stringTablePtr;
       if(mat->textureA.texPath)mat->textureA.texPath += (uint32_t)model->stringTablePtr;
       if(mat->textureB.texPath)mat->textureB.texPath += (uint32_t)model->stringTablePtr;
+      T3DMaterialTexture *textures[] = { &mat->textureA, &mat->textureB };
+      for (unsigned t = 0; t < 2; ++t) {
+        T3DMaterialTexture *tex = textures[t];
+        if (!tex->texPath || tex->texReference) continue;
+        tex->texture = texture_cache_get(tex->textureHash);
+        if (!tex->texture) {
+          tex->texture = sprite_load(tex->texPath);
+          assertf(tex->texture, "Failed to load model texture: %s", tex->texPath);
+          texture_cache_add(tex->textureHash, tex->texture);
+        }
+      }
     }
 
     if(chunkType == T3D_CHUNK_TYPE_SKELETON) {

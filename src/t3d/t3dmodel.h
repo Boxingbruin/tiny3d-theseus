@@ -194,7 +194,8 @@ enum T3DModelChunkType {
 };
 
 /**
- * Loads a model from a file.
+ * Loads a model and its referenced static textures from files.
+ * File I/O, decompression and texture cache growth complete before returning.
  * If you no longer need the model, call 't3d_model_free'
  *
  * @param path FS path

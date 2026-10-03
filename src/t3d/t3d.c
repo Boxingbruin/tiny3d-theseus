@@ -592,18 +592,21 @@ void t3d_fog_set_range(float near, float far) {
 
 void t3d_viewport_attach(T3DViewport *viewport) {
   assertf(viewport != NULL, "Viewport is NULL!");
-  currentViewport = viewport;
-
-  if(currentViewport->_normScaleW <= 0.0f) {
-    currentViewport->_normScaleW = 1.0f;
-  }
-
-  // Limit draw region
   rdpq_set_scissor(
     viewport->offset[0], viewport->offset[1],
     viewport->offset[0] + viewport->size[0],
     viewport->offset[1] + viewport->size[1]
   );
+  t3d_viewport_attach_geometry(viewport);
+}
+
+void t3d_viewport_attach_geometry(T3DViewport *viewport) {
+  assertf(viewport != NULL, "Viewport is NULL!");
+  currentViewport = viewport;
+
+  if(currentViewport->_normScaleW <= 0.0f) {
+    currentViewport->_normScaleW = 1.0f;
+  }
 
   uint16_t normWScale = (uint16_t)roundf(0xFFFF * fminf(currentViewport->_normScaleW, 1.0f));
   float normWScaleFloat = (float)normWScale * (1.0f / 0xFFFF);

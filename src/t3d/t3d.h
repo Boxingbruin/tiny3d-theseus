@@ -241,6 +241,12 @@ inline static void t3d_viewport_destroy(T3DViewport *viewport) {
  */
 void t3d_viewport_attach(T3DViewport *viewport);
 
+/** Attach geometry state without changing the RDP scissor or render modes.
+ * The caller owns raster state and must set a matching scissor before drawing.
+ * Viewport matrix storage must remain alive until its RSP consumers complete.
+ */
+void t3d_viewport_attach_geometry(T3DViewport *viewport);
+
 /**
  * Returns the currently attached viewport.
  * @return viewport or NULL if none is attached
