@@ -114,3 +114,38 @@ for (const [name, words] of [
       assert.equal(u.r32(u.sym.RDPQ_CURRENT), BASE + words.length * 4);
     });
 }
+
+for (const word of [0xFC123456, 0xE7000000, 0xFD10003F, 0xFFFFFFFF]) {
+  test(`resident prepared word preserves ${word.toString(16)} and geometry state`, async () => {
+    const u=await Ucode.load(); setup(u); dpReads(u,0,0);
+    u.w32(u.sym.RDPQ_CURRENT,BASE); u.w32(u.sym.RDPQ_SENTINEL,BASE+8);
+    const state=u.bytes(u.sym._RSPQ_SAVED_STATE_START,
+      u.sym._RSPQ_SAVED_STATE_END-u.sym._RSPQ_SAVED_STATE_START);
+    u.setVpr('$v10',[1,2,3,4,5,6,7,8]);
+    const result=u.command('T3DCmd_Prepared8',[0,word,0xFEDCBA98],{$gp:44});
+    assert.equal(result.pc,u.sym.RSPQ_Loop);
+    assert.equal(u.rdr32(BASE),word); assert.equal(u.rdr32(BASE+4),0xFEDCBA98);
+    assert.equal(u.rdr32(BASE+8),0xA5A5A5A5);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE+8);
+    assert.equal(u.gpr('$gp'),44);
+    assert.deepEqual(u.vpr('$v10'),[1,2,3,4,5,6,7,8]);
+    assert.deepEqual(u.bytes(u.sym._RSPQ_SAVED_STATE_START,state.length),state);
+  });
+}
+
+for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64],['same-buffer DMA busy',256,0]]) {
+  test(`resident prepared rollover waits before DMA while ${reason}`, async () => {
+    const u=await Ucode.load(); setup(u);
+    u.w8(u.sym.RDPQ_SYNCFULL_ONGOING,sync);
+    const release=dpReads(u,status===256 ? BASE : 0,status);
+    const r=u.command('T3DCmd_Prepared8',[0,0xFC123456,0xFEDCBA98],{},['RSPQCmd_RdpSetBuffer_RdpWait']);
+    assert.equal(r.pc,u.sym.RSPQCmd_RdpSetBuffer_RdpWait);
+    u.rsp.fn.rsp_set_halted(0); u.rsp.step(100);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT),OLD);
+    assert.equal(u.rdr32(BASE),0xA5A5A5A5);
+    release(); assert.equal(u.runUntil([u.sym.RSPQ_Loop]).pc,u.sym.RSPQ_Loop);
+    assert.equal(u.rdr32(BASE),0xFC123456); assert.equal(u.rdr32(BASE+4),0xFEDCBA98);
+    assert.equal(u.rdr32(BASE+8),0xA5A5A5A5);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE+8);
+  });
+}

@@ -121,6 +121,7 @@
     RSPQ_DefineCommand T3DCmd_TriSync, 4
     RSPQ_DefineCommand T3DCmd_TriDraw_Strip, 8
     RSPQ_DefineCommand T3DCmd_TriDraw_Seq, 8
+    RSPQ_DefineCommand T3DCmd_Prepared8, 12
   RSPQ_EndOverlayHeader
 
   RSPQ_BeginSavedState
@@ -135,20 +136,20 @@
     MATRIX_NORMAL: .ds.b 24
     .align 1
     VERT_CONSTS: .half -32768, -32768, 0, -32768, -32513, 32767, 0, 0
+    .align 3
+    NORM_SCALE_W: .half 65535, 65535, 65535, 0
     .align 4
     NORMAL_MASK_SHIFT: .half 63488, 2016, 31, 0, 1, 32, 2048, 0
     .align 3
     CLIPPING_PLANES: .byte 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, -1, 0, 1, 0, -1
-    .align 3
-    SCREEN_SCALE: .half 0, 0, 0, 0, 0, 0, 0, 0
-    .align 1
-    SCREEN_OFFSET: .half 0, 0, 16383, -32513
     .align 1
     RDPQ_TRI_BUFF_OFFSET: .half 0
     .align 1
     SCREEN_UVGEN_SCALE: .half 0
     .align 3
-    NORM_SCALE_W: .half 65535, 65535, 65535, 0
+    SCREEN_SCALE: .half 0, 0, 0, 0, 0, 0, 0, 0
+    .align 1
+    SCREEN_OFFSET: .half 0, 0, 16383, -32513
     .align 1
     CLIP_RA: .half 0
     .align 1
@@ -815,6 +816,10 @@ T3DCmd_Patch:
   sw $a2, 4($s4)                                     ## L:1185 |      4 | store(opcode1, dmemAddr, 4);
   j DMAOut                                           ## L:1187 |      5 | DMAOut(size, rdramAddr, dmemAddr); ## Args: $t0, $s0, $s4
   addiu $t0, $zero, 7                                ## L:1180 |     *7 | u16<$t0> size = 8 - 1;
+
+T3DCmd_Prepared8:
+  j Theseus_Prepared8
+  nop
 
 OVERLAY_CODE_END:
 

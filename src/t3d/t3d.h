@@ -37,6 +37,7 @@ enum T3DCmd {
   T3D_CMD_TRI_SYNC     = 0xA,
   T3D_CMD_TRI_STRIP    = 0xB,
   T3D_CMD_TRI_SEQ      = 0xC,
+  T3D_CMD_PREPARED8    = 0xD,
   //                   = 0xD,
   //                   = 0xE,
   //                   = 0xF,
