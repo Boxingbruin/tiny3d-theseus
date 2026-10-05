@@ -80,7 +80,7 @@ for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64]
     const u=await Ucode.load(process.env.RDPQ_ELF); setup(u);
     u.w8(u.sym.RDPQ_SYNCFULL_ONGOING,sync);
     const release=dpReads(u,status===256 ? BASE : 0,status);
-    const src=u.sym.RDPQ_CMD_STAGING;
+    const src=u.sym.RDPQ_CMD_STAGING ?? u.sym.RSPQ_SCRATCH_MEM;
     u.w32(src,0xE7000000); u.w32(src+4,0);
     const r=u.call('RDPQ_Send',{$s4:src,$s3:src+8},[waitSymbol(u)]);
     assert.equal(r.pc,u.sym[waitSymbol(u)]);
@@ -93,4 +93,24 @@ for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64]
     assert.equal(u.rdr32(BASE),0xE7000000);
     assert.equal(u.rdr32(BASE+8),0xA5A5A5A5);
   });
+}
+
+for (const [name, words] of [
+  ['Packets_Write8', [0xFC123456, 0xFEDCBA98]],
+  ['Packets_Write16', [0xE4123456, 0x789ABCDE, 0x0123FEDC, 0x89ABCDEF]],
+  ['Packets_Write16', [0xE5123456, 0x789ABCDE, 0xFEDC0123, 0xABCDEF89]],
+]) {
+  test(`prepared transport preserves ${words[0].toString(16)} and every payload bit`,
+    {skip: !process.env.PACKETS_ELF && 'Set PACKETS_ELF to test the Theseus transport'}, async () => {
+      const u = await Ucode.load(process.env.PACKETS_ELF); setup(u); dpReads(u, 0, 0);
+      // A long command's final argument is read from the queue, beyond a0-a3.
+      const size = words.length * 4 + 4;
+      words.forEach((word, i) => u.w32(u.sym.RSPQ_DMEM_BUFFER + 4 + i * 4, word));
+      const r = u.call(name, {$a0:0x12000000, $a1:words[0], $a2:words[1],
+        $a3:words[2] ?? 0, $gp:size}, ['RSPQ_Loop']);
+      assert.equal(r.pc, u.sym.RSPQ_Loop);
+      words.forEach((word, i) => assert.equal(u.rdr32(BASE + i * 4), word));
+      assert.equal(u.rdr32(BASE + words.length * 4), 0xA5A5A5A5);
+      assert.equal(u.r32(u.sym.RDPQ_CURRENT), BASE + words.length * 4);
+    });
 }
