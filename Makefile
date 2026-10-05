@@ -40,10 +40,12 @@ OBJ = $(BUILD_DIR)/t3dmath.o $(BUILD_DIR)/t3d.o \
 all: $(BUILD_DIR)/libt3d.a
 
 # Static Library
-$(BUILD_DIR)/libt3d.a: $(OBJ)
+$(BUILD_DIR)/libt3d.a: $(OBJ) Makefile
 	@mkdir -p $(dir $@)
-	@echo "    [LD_LIB] $<"
-	$(N64_LD) -r -o $(BUILD_DIR)/libt3d.a $^
+	@echo "    [AR_LIB] $@"
+	rm -f $@.tmp
+	$(N64_AR) rcsD $@.tmp $(OBJ)
+	mv $@.tmp $@
 
 $(BUILD_DIR)/libt3d.a: RSPASFLAGS+=$(N64_RSPASFLAGS)
 $(BUILD_DIR)/rsp/rsp_tiny3d.o: $(SOURCE_DIR)/rsp/rspq_triangle.inc $(SOURCE_DIR)/rsp/rspq_triangle_ref.inc $(SOURCE_DIR)/rsp/rspq_triangle_rspl.inc
