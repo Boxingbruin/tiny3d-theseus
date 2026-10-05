@@ -107,6 +107,6 @@ clean:
 	rm -rf $(BUILD_DIR)
 	rm -f $(SOURCE_DIR)/rsp/rsp_tiny3d.h
 
--include $(wildcard $(BUILD_DIR)/*.d)
+-include $(wildcard $(BUILD_DIR)/*.d $(BUILD_DIR)/rsp/*.d)
 
 .PHONY: all clean
