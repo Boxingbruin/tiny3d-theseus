@@ -1,3 +1,5 @@
+#include <rsp_rdpq_output.inc>
+
 #########################################################################
 #
 #  RDPQ_Triangle: assemble a RDP triangle command

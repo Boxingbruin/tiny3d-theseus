@@ -22,7 +22,6 @@
 #define VTX_ATTR_INVWf     0x22
 
 #define RDP_CMD_MAX_SIZE 176
-#define RDPQ_DYNAMIC_BUFFER_SIZE 65536
 
 state
 {
@@ -38,12 +37,12 @@ state
   // libdragon rdpq state (rsp_queue.inc)
   extern u32 RDPQ_CURRENT;
   extern u32 RDPQ_SENTINEL;
-  extern u32 RDPQ_DYNAMIC_BUFFERS;
   extern u8 RDPQ_SYNCFULL_ONGOING;
 }
 
-// libdragon function, sets a new RDP output buffer (destroys t0-t3)
-function RSPQCmd_RdpSetBuffer(u32<$a0> newBuf, u32<$a1> newBufStart, u32<$a2> newSentinel);
+// Theseus reserves and installs an empty dynamic output range.
+// Returns its base in a0 and exclusive limit in a2; destroys t0-t3/ra2.
+function RSPQ_RdpNextBuffer();
 
 /**
  * Entry point of the triangle-draw command ('T3DCmd_TriDraw_Cmd' jumps here).
@@ -623,29 +622,16 @@ function RDPQ_Triangle_Send_Async(u32<$a0> vtx1, u32<$a1> vtx2, u32<$a2> vtx3, u
   @Barrier("tri-out") store(vdy:ufract.XYZW, tex_dmem, 0x38);
 
   // Slow path: when the RDRAM buffer is full (we reached the sentinel),
-  // we need to switch buffers. This is basically an inlined version of the
-  // same slow-path in RDPQ_Send. @Unlikely keeps it out-of-line so the
-  // common path falls through instead of branching over it.
+  // reserve the next range through the shared output allocator. @Unlikely
+  // keeps this out-of-line so the common path falls through.
   @Unlikely if(rdramSentinel < rdramCur)
   {
     u32<$a3> savedRA = RA;
-    rdramCur = load(RDPQ_DYNAMIC_BUFFERS, 4);
-    u32<$t1> otherBuff = load(RDPQ_DYNAMIC_BUFFERS, 0);
-    store(rdramCur, RDPQ_DYNAMIC_BUFFERS, 0);
-    store(otherBuff, RDPQ_DYNAMIC_BUFFERS, 4);
-    undef otherBuff;
-
-    // We are going to call RSPQCmd_RdpSetBuffer. Since it's going to destroy
-    // t0-t3, we need to save prim_size (t3). Notice that we rely on the fact
-    // that it doesn't destroy t4-t6 (which contain the various DMEM pointers).
-    // As a scratch buffer, we use a part of the primitive buffer that will be
-    // written later, after this branch.
+    // The shared allocator owns rotation and waits before reuse. Geometry owns
+    // this temporary primitive scratch; the allocator preserves t4-t7 and a3.
     @Barrier("cb-stash") store(prim_size:u8, color_dmem, 0x00);
-
-    rdramSentinel = rdramCur + RDPQ_DYNAMIC_BUFFER_SIZE;
-    u32<$a1> rdramCurCopy = rdramCur;
-    RSPQCmd_RdpSetBuffer(rdramCur, rdramCurCopy, rdramSentinel);
-    undef rdramCurCopy;
+    RSPQ_RdpNextBuffer();
+    // a0 is the allocator's returned base, represented by rdramCur here.
 
     // Restore the primitive size that was stashed away, and change the
     // DMA RDRAM register to use the new buffer instead of the old one.

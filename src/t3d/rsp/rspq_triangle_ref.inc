@@ -718,25 +718,14 @@ rdpq_triangle_change_buffer_done:
     .set at
 
     # Slow path: when the RDRAM buffer is full (we reached the sentinel),
-    # we need to switch buffer. This is basicaly an inlined version of the same
-    # slow-path in RDPQ_Send.
+    # reserve through the output owner shared with RDPQ_Send.
 rdpq_triangle_change_buffer:
     move a3, ra
-    lw rdram_cur, %lo(RDPQ_DYNAMIC_BUFFERS) + 4
-    lw t1, %lo(RDPQ_DYNAMIC_BUFFERS) + 0
-    sw rdram_cur, %lo(RDPQ_DYNAMIC_BUFFERS) + 0
-    sw t1, %lo(RDPQ_DYNAMIC_BUFFERS) + 4
-
-    # We are going to call RSPQCmd_RdpSetBuffer. Since it's going to destroy
-    # t0-t3, we need to save prim_size (t3). Notice that we rely on the fact
-    # that it doesn't destroy t4-t6 (which contain the various DMEM pointers).
-    # As scratch buffer, we use a part of the primitive buffer that will be
-    # written later, after we return to the happy-path.
+    # Shared reservation waits for safe reuse before the producer starts DMA.
+    # t3 is caller-owned primitive size; t4-t7 and a3 survive the allocator.
     sb prim_size, 0x00(color_dmem)
-
-    add rdram_sentinel, rdram_cur, RDPQ_DYNAMIC_BUFFER_SIZE
-    jal RSPQCmd_RdpSetBuffer
-    move a1, rdram_cur
+    jal RSPQ_RdpNextBuffer
+    nop
 
     # Go back to RDPQ_Triangle_Send_Async happy path. Restore the primitive
     # size that was stashed away, and change DMA RDRAM registter to use the

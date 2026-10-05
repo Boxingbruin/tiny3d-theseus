@@ -338,16 +338,11 @@ RDPQ_Triangle_Send_Async:
   j LABEL_RDPQ_Triangle_Send_Async_0005              ## L:481  |      7 | dmaBusy = get_dma_busy();
   nop                                                ## L:481  |     *9 | dmaBusy = get_dma_busy();
   LABEL_RDPQ_Triangle_Send_Async_0009:
-  lw $a0, %lo(RDPQ_DYNAMIC_BUFFERS + 4)              ## L:631  |     10 | rdramCur = load(RDPQ_DYNAMIC_BUFFERS, 4);
-  sb $t3, 0($t4)                                     ## L:642  |     11 | @Barrier("cb-stash") store(prim_size:u8, color_dmem, 0x00); ## Barrier: 0x2
-  lw $t1, %lo(RDPQ_DYNAMIC_BUFFERS + 0)              ## L:632  |     12 | u32<$t1> otherBuff = load(RDPQ_DYNAMIC_BUFFERS, 0);
-  sw $a0, %lo(0 + RDPQ_DYNAMIC_BUFFERS)($zero)       ## L:633  |     13 | store(rdramCur, RDPQ_DYNAMIC_BUFFERS, 0);
-  lui $at, 0x01                                      ## L:644  |     14 | rdramSentinel = rdramCur + 65536;
-  sw $t1, %lo(4 + RDPQ_DYNAMIC_BUFFERS)($zero)       ## L:634  |     15 | store(otherBuff, RDPQ_DYNAMIC_BUFFERS, 4);
-  or $a3, $zero, $ra                                 ## L:630  |     16 | u32<$a3> savedRA = RA;
-  or $a1, $zero, $a0                                 ## L:645  |     17 | u32<$a1> rdramCurCopy = rdramCur;
-  jal RSPQCmd_RdpSetBuffer                           ## L:646  |     18 | RSPQCmd_RdpSetBuffer(rdramCur, rdramCurCopy, rdramSentinel); ## Args: $a0, $a1, $a2
-  addu $a2, $a0, $at                                 ## L:644  |    *20 | rdramSentinel = rdramCur + 65536;
+  ## Cold rollover synchronized with rspq_triangle.rspl. Preserve the existing
+  ## scheduled triangle arithmetic; rotation and reservation live in Theseus.
+  or $a3, $zero, $ra
+  jal RSPQ_RdpNextBuffer
+  sb $t3, 0($t4)
   or $ra, $zero, $a3                                 ## L:654  |     21 | RA = savedRA;
   lbu $t3, 0($t4)                                    ## L:652  |     22 | @Barrier("cb-stash") prim_size:u8 = load(color_dmem, 0x00); ## Barrier: 0x2
   mtc0 $a0, COP0_DMA_RAMADDR                         ## L:651  |     23 | @Barrier("tri-out") set_dma_addr_rdram(rdramCur); ## Barrier: 0x1
