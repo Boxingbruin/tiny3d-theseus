@@ -36,9 +36,11 @@ T3DAnim t3d_anim_create(const T3DModel *model, const char *name) {
 static void rewind_anim(T3DAnim *anim)
 {
   for(int c=0; c<anim->animRef->channelsScalar; c++) {
+    anim->targetsScalar[c].base.timeStart = 0;
     anim->targetsScalar[c].base.timeEnd = 0;
   }
   for(int c=0; c<anim->animRef->channelsQuat; c++) {
+    anim->targetsQuat[c].base.timeStart = 0;
     anim->targetsQuat[c].base.timeEnd = 0;
   }
   anim->nextKfSize = sizeof(T3DAnimKF);
@@ -149,6 +151,7 @@ static inline bool load_keyframe(T3DAnim *anim) {
 
   bool isRot = kf.channelIdx < anim->animRef->channelsQuat;
   T3DAnimTargetBase *targetBase = get_base_target(anim, kf.channelIdx, isRot);
+  bool firstKeyframe = targetBase->timeStart == 0.0f && targetBase->timeEnd == 0.0f;
 
   targetBase->timeStart = targetBase->timeEnd;
   targetBase->timeEnd += (float)kf.nextTime * KF_TIME_TICK;
@@ -158,10 +161,14 @@ static inline bool load_keyframe(T3DAnim *anim) {
     T3DAnimTargetQuat *target = (T3DAnimTargetQuat*)targetBase;
     target->kfCurr = target->kfNext;
     unpack_quat(kf.data[0], kf.data[1], &target->kfNext);
+    // Hold the first authored value before its timestamp, including on rewind.
+    // Interpolating from calloc's zero quaternion can also divide by zero.
+    if(firstKeyframe)target->kfCurr = target->kfNext;
   } else {
     T3DAnimTargetScalar *target = (T3DAnimTargetScalar*)targetBase;
     target->kfCurr = target->kfNext;
     target->kfNext = (float)kf.data[0] * channelMap->quantScale + channelMap->quantOffset;
+    if(firstKeyframe)target->kfCurr = target->kfNext;
   }
 
   return true;
