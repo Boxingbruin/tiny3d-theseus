@@ -807,77 +807,6 @@ command<0> T3DCmd_TriDraw_Cmd(u32 vert0, u32 vert1)
   goto CLIPPING_CODE_TARGET;
 }
 
-@NoReturn
-command<11> T3DCmd_TriDraw_Strip(u32 rdramAddr, u32 countDmem)
-{
-  u32<$s0> dmaAddrRDRAM;
-  u16<$t0> copySize;
-  s16<$s4> prtDmem;
-  u16<$s2> prtDmemEnd;
-
-  //u16<$t2> dmaMode = 0;
-  //DMAExec(copySize, dmaAddrRDRAM, prtDmem);
-
-  loop { // wait for last DMA to be done
-    RA = get_dma_busy();
-    copySize = countDmem & 0xFFFF;
-    prtDmem = countDmem >> 16;
-    prtDmemEnd = prtDmem + copySize;
-  } while(RA != 0)
-
-  dmaInAsync(rdramAddr, prtDmem, copySize);
-  T3DCmd_TriDraw_Strip_PostDMA:
-
-  //asm("emux_trace_start");
-
-  undef rdramAddr;
-  undef countDmem;
-
-  u32<$v1> vertAddr;
-  u16<$sp> rejectDest;
-  u16<$s7> currOffset;
-
-  prtDmemEnd -= 3; // remove?
-
-  // load culling (persists across loop)
-  u8<$v0> faceCull;
-  u16<$a0> idx0, idx1, idx2;
-
-  prtDmem -= 2; // compensate for the first increment in the loop
-
-  loop { // Wait for DMA to be done
-    vertAddr = get_dma_busy();
-  } while(vertAddr != 0)
-
-  STRIP_LOOP_NEW:
-    faceCull = load(FACE_CULLING);
-    prtDmem += 2;
-  STRIP_LOOP_NEXT:
-    faceCull ^= 1; // strips alternate winding order each time
-    if(prtDmem == prtDmemEnd)goto STRIP_LOOP_END;
-
-    idx0     = load(prtDmem, 2);
-    idx1:s16 = load(prtDmem, 4); // sign bit marks the end of the strip
-    idx2     = load(prtDmem, 0);
-
-    prtDmem += 2;
-    if(idx1:s16 < 0)goto STRIP_LOOP_NEW;
-
-    //print(idx0, idx1, idx2);
-    RA = STRIP_LOOP_NEXT;
-    goto RDPQ_Triangle_Send_Async;
-    //RDPQ_Triangle_Send_Async(idx0, idx1, idx2, rejectDest, faceCull);
-
-  STRIP_LOOP_END:
-
-  RA = RSPQ_Loop; // T3DCmd_TriSync needs RA with that value
-
-  // if we need to sync the MSB of the DMEM address is set, causing it to be negative
-  if(prtDmemEnd >= 0)goto RSPQ_Loop;
-
-  // NOTE: code flows into 'T3DCmd_TriSync' here!
-}
-
 /**
  * Syncs triangle calls, wrapper for 'RDPQ_Triangle_Send_Async'.
  */
@@ -901,46 +830,6 @@ command<10> T3DCmd_TriSync()
 }
 
 
-@NoReturn
-command<12> T3DCmd_TriDraw_Seq(u32 sizeAndIndex, u16 endIndex)
-{
-  // Note: $s1, $s4, $s2, $v0, $v1 are preserved across  RDPQ_Triangle calls
-  u8<$s4> baseVtxEnd = endIndex & 0xFFFF;
-  u16<$s2> baseVtx = sizeAndIndex & 0xFFFF;
-
-  u8<$v0> faceCull = load(FACE_CULLING);
-  u16<$s1> isQuad = endIndex >> 16;
-  u16<$v1> vtxIncr = isQuad + (TRI_SIZE * 3);
-
-  undef sizeAndIndex;
-  undef endIndex;
-  u16<$a0> idx0, idx1, idx2;
-
-  SEQ_LOOP_NEXT:
-    idx0 = baseVtx + (TRI_SIZE * 2);
-    if(baseVtx == baseVtxEnd)goto SEQ_LOOP_END;
-    idx1 = baseVtx + (TRI_SIZE * 1);
-    idx2 = baseVtx;
-    baseVtx += vtxIncr;
-
-    RA = SEQ_LOOP_NEXT;
-    goto RDPQ_Triangle_Send_Async;
-    //RDPQ_Triangle_Send_Async(idx0, idx1, idx2, rejectDest, faceCull);
-
-  SEQ_LOOP_END:
-    RA = RSPQ_Loop;
-    if(isQuad) {
-      isQuad = 0;
-      faceCull ^= 1;
-      baseVtx:u16 = load_arg(2);
-      baseVtx += TRI_SIZE;
-      baseVtxEnd += TRI_SIZE;
-      goto SEQ_LOOP_NEXT;
-    }
-
-    goto T3DCmd_TriSync;
-}
-
 command<8> T3DCmd_Patch(u32 rdramAddr_, u32 opcode0, u32 opcode1) {
     u16<$t0> size = 8 - 1;
     u32<$s0> rdramAddr = rdramAddr_;
@@ -957,6 +846,11 @@ command<8> T3DCmd_Patch(u32 rdramAddr_, u32 opcode0, u32 opcode1) {
 function Theseus_Prepared8();
 command<13> T3DCmd_Prepared8(u32 ignored, u32 high, u32 low) {
     goto Theseus_Prepared8;
+}
+
+function Theseus_Work();
+command<11> T3DCmd_Work(u32 descriptor) {
+    goto Theseus_Work;
 }
 
 #endif

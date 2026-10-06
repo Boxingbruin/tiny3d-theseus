@@ -35,8 +35,8 @@ enum T3DCmd {
   T3D_CMD_PATCH        = 0x8,
   T3D_CMD_FOG_STATE    = 0x9,
   T3D_CMD_TRI_SYNC     = 0xA,
-  T3D_CMD_TRI_STRIP    = 0xB,
-  T3D_CMD_TRI_SEQ      = 0xC,
+  T3D_CMD_WORK         = 0xB,
+  // 0xC is reserved.
   T3D_CMD_PREPARED8    = 0xD,
   //                   = 0xD,
   //                   = 0xE,
@@ -373,7 +373,6 @@ void t3d_tri_draw(uint32_t v0, uint32_t v1, uint32_t v2);
  *  -> 4,5,6  7,8,9
  * This is effectively performing an un-indexed draw of triangles,
  * but without the overhead of loading an index-buffer.
- * This method is faster than going through 't3d_tri_draw_strip'.
  *
  * @param baseIndex first index
  * @param triCount amount of triangles to draw
@@ -386,7 +385,6 @@ void t3d_tri_draw_unindexed(uint32_t baseIndex, uint32_t triCount);
  *  -> 4,5,6  7,6,5,  8,9,10, 11,10,9
  * This is effectively performing an un-indexed draw of quads,
  * but without the overhead of loading an index-buffer.
- * This method is faster than going through 't3d_tri_draw_strip'.
  *
  * @param baseIndex first index
  * @param triCount amount of quads to draw
@@ -399,15 +397,11 @@ void t3d_quad_draw_unindexed(uint32_t baseIndex, uint32_t quadCount);
  * Note that this data must be in an internal format, so use 't3d_indexbuffer_convert' to convert it first.
  * The docs of 't3d_indexbuffer_convert' also describe the format of the input data.
  *
- * The data behind 'indexBuff' will be DMA'd by the ucode, so it must be aligned to 8 bytes,
- * and persist in memory until the triangles are drawn.
- * The target location of the DMA in DMEM is shared with the vertex cache, aligned to the end.
- * Make sure that there is enough space left to load the indices to not corrupt the vertices.
- * E.g. if you loaded 68 vertices, you have 2 slots free or 36*2 bytes, meaning you can load 36 indices.
- * Note that due to alignment reasons, a safety margin of 4 indices should be added if the free vertex count is odd.
- *
- * The built-in model format will use this function internally, if you plan on manually using it for model data,
- * check out 'tools/gltf_importer/src/optimizer/meshOptimizer.cpp' for an algorithm to do so.
+ * The CPU compiles the encoded strip into immutable spans of at most sixteen
+ * triangles. Restart and winding state are resolved at compilation, so the RSP
+ * may park before any span without replaying a partially emitted strip. Input
+ * indices are consumed during this call; resulting commands belong to the queue
+ * or recorded block. Prefer preparing reusable blocks outside the frame loop.
  *
  * @param indexBuff index buffer to load
  * @param count amount of indices to load

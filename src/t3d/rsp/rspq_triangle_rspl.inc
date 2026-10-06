@@ -68,9 +68,12 @@
 .set noat
 
 T3DCmd_TriDraw:
-  ## hot-path cycles: 2
+  srl $t0, $a0, 16
+  andi $t0, $t0, 1
+  ## Entry also resolves the compiled strip winding bit.
   lbu $v0, %lo(FACE_CULLING + 0)                     ## L:69   |      ^ | u8<$v0> cullFlag = load(FACE_CULLING);
   srl $a2, $a1, 16                                   ## L:68   |      2 | u32<$a2> vert2 = vert1 >> 16;
+  xor $v0, $v0, $t0
 RDPQ_Triangle_Send_Async:
   ## hot-path cycles: 142
   mtc2 $a0, $v01.e3                                  ## L:93   |      ^ | vall1.w = vtx1;

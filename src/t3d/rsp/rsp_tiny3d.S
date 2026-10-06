@@ -119,9 +119,9 @@
     RSPQ_DefineCommand T3DCmd_Patch, 12
     RSPQ_DefineCommand T3DCmd_SetFogState, 4
     RSPQ_DefineCommand T3DCmd_TriSync, 4
-    RSPQ_DefineCommand T3DCmd_TriDraw_Strip, 8
-    RSPQ_DefineCommand T3DCmd_TriDraw_Seq, 8
-    RSPQ_DefineCommand T3DCmd_Prepared8, 12
+    RSPQ_DefineCommand Theseus_Work, 4
+    RSPQ_DefineCommand RSPQ_Loop, 4
+    RSPQ_DefineCommand Theseus_Prepared8, 12
   RSPQ_EndOverlayHeader
 
   RSPQ_BeginSavedState
@@ -740,40 +740,6 @@ T3DCmd_SetWord:
   sh $s4, %lo(18 + RSPQ_SCRATCH_MEM)($zero)
   j CLIPPING_CODE_TARGET
   ori $s4, $zero, %lo(CLIPPING_CODE_TARGET)
-T3DCmd_TriDraw_Strip:
-  LABEL_T3DCmd_TriDraw_Strip_0014:
-  mfc0 $ra, COP0_DMA_BUSY                            ## L:1047 |      1 | RA = get_dma_busy();
-  andi $t0, $a1, 65535                               ## L:1048 |      2 | copySize = countDmem & 0xFFFF;
-  sra $s4, $a1, 16                                   ## L:1049 |      3 | prtDmem = countDmem >> 16;
-  bne $ra, $zero, LABEL_T3DCmd_TriDraw_Strip_0014    ## L:1050 |      4 | prtDmemEnd = prtDmem + copySize;
-  addu $s2, $s4, $t0                                 ## L:1050 |     *6 | prtDmemEnd = prtDmem + copySize;
-  LABEL_T3DCmd_TriDraw_Strip_0015:
-  mtc0 $s4, COP0_DMA_SPADDR                          ## L:223  |      7 | @Barrier("DMA") set_dma_addr_rsp(addrDMEM); ## Barrier: 0x1
-  mtc0 $a0, COP0_DMA_RAMADDR                         ## L:224  |      8 | @Barrier("DMA") set_dma_addr_rdram(addrRDRAM); ## Barrier: 0x1
-  mtc0 $t0, COP0_DMA_READ                            ## L:225  |   **11 | @Barrier("DMA") set_dma_read(size); ## Barrier: 0x1
-  T3DCmd_TriDraw_Strip_PostDMA:
-  addiu $s2, $s2, 65533                              ## L:1065 |     12 | prtDmemEnd -= 3;
-  addiu $s4, $s4, 65534                              ## L:1071 |     13 | prtDmem -= 2;
-  LABEL_T3DCmd_TriDraw_Strip_0016:
-  mfc0 $v1, COP0_DMA_BUSY                            ## L:1074 |     14 | vertAddr = get_dma_busy();
-  bne $v1, $zero, LABEL_T3DCmd_TriDraw_Strip_0016    ## L:1074 |   **17 | vertAddr = get_dma_busy();
-  nop                                                ## L:1074 |    *19 | vertAddr = get_dma_busy();
-  STRIP_LOOP_NEW:
-  lbu $v0, %lo(FACE_CULLING + 0)                     ## L:1078 |     20 | faceCull = load(FACE_CULLING);
-  addiu $s4, $s4, 2                                  ## L:1079 |     21 | prtDmem += 2;
-  STRIP_LOOP_NEXT:
-  beq $s4, $s2, STRIP_LOOP_END                       ## L:1082 |     22 | if(prtDmem == prtDmemEnd)goto STRIP_LOOP_END;
-  xori $v0, $v0, 1                                   ## L:1081 |    *24 | faceCull ^= 1;
-  lh $a1, 4($s4)                                     ## L:1085 |     25 | idx1:s16 = load(prtDmem, 4);
-  lhu $a0, 2($s4)                                    ## L:1084 |     26 | idx0     = load(prtDmem, 2);
-  lhu $a2, 0($s4)                                    ## L:1086 |     27 | idx2     = load(prtDmem, 0);
-  bltz $a1, STRIP_LOOP_NEW                           ## L:1089 |     28 | if(idx1:s16 < 0)goto STRIP_LOOP_NEW;
-  addiu $s4, $s4, 2                                  ## L:1088 |    *30 | prtDmem += 2;
-  j RDPQ_Triangle_Send_Async                         ## L:1093 |     31 | goto RDPQ_Triangle_Send_Async;
-  ori $ra, $zero, %lo(STRIP_LOOP_NEXT)               ## L:1092 |    *33 | RA = STRIP_LOOP_NEXT;
-  STRIP_LOOP_END:
-  bgez $s2, RSPQ_Loop                                ## L:1101 |     34 | if(prtDmemEnd >= 0)goto RSPQ_Loop;
-  ori $ra, $zero, %lo(RSPQ_Loop)                     ## L:1098 |    *36 | RA = RSPQ_Loop;
 T3DCmd_TriSync:
   lbu $s7, %lo(CLIP_CODE_ADDR + 0)
   beq $s7, $zero, RDPQ_Triangle_Send_End
@@ -786,29 +752,6 @@ T3DCmd_TriSync:
   sb $zero, %lo(CLIP_CODE_ADDR)($zero)
   j RDPQ_Triangle_Send_End
   ori $ra, $zero, %lo(RSPQ_Loop)
-T3DCmd_TriDraw_Seq:
-  srl $s1, $a1, 16                                   ## L:1137 |      ^ | u16<$s1> isQuad = endIndex >> 16;
-  andi $s4, $a1, 65535                               ## L:1133 |      2 | u8<$s4> baseVtxEnd = endIndex & 0xFFFF;
-  lbu $v0, %lo(FACE_CULLING + 0)                     ## L:1136 |      3 | u8<$v0> faceCull = load(FACE_CULLING);
-  andi $s2, $a0, 65535                               ## L:1134 |      4 | u16<$s2> baseVtx = sizeAndIndex & 0xFFFF;
-  addiu $v1, $s1, 108                                ## L:1138 |      5 | u16<$v1> vtxIncr = isQuad + (36 * 3);
-  SEQ_LOOP_NEXT:
-  beq $s2, $s4, SEQ_LOOP_END                         ## L:1146 |      6 | if(baseVtx == baseVtxEnd)goto SEQ_LOOP_END;
-  addiu $a0, $s2, 72                                 ## L:1145 |     *8 | idx0 = baseVtx + (36 * 2);
-  or $a2, $zero, $s2                                 ## L:1148 |      9 | idx2 = baseVtx;
-  addiu $a1, $s2, 36                                 ## L:1147 |     10 | idx1 = baseVtx + (36 * 1);
-  ori $ra, $zero, %lo(SEQ_LOOP_NEXT)                 ## L:1151 |     11 | RA = SEQ_LOOP_NEXT;
-  j RDPQ_Triangle_Send_Async                         ## L:1152 |     12 | goto RDPQ_Triangle_Send_Async;
-  addu $s2, $s2, $v1                                 ## L:1149 |    *14 | baseVtx += vtxIncr;
-  SEQ_LOOP_END:
-  beq $s1, $zero, T3DCmd_TriSync                     ## L:1157 |     15 | if(isQuad) {
-  ori $ra, $zero, %lo(RSPQ_Loop)                     ## L:1156 |    *17 | RA = RSPQ_Loop;
-  lhu $s2, %lo(RSPQ_DMEM_BUFFER  -6)($gp)            ## L:1160 |     18 | baseVtx:u16 = load_arg(2);
-  xori $v0, $v0, 1                                   ## L:1159 |     19 | faceCull ^= 1;
-  addiu $s4, $s4, 36                                 ## L:1162 |     20 | baseVtxEnd += 36;
-  addiu $s2, $s2, 36                                 ## L:1161 |     21 | baseVtx += 36;
-  j SEQ_LOOP_NEXT                                    ## L:1163 |     22 | goto SEQ_LOOP_NEXT;
-  or $s1, $zero, $zero                               ## L:1158 |    *24 | isQuad = 0;
 T3DCmd_Patch:
   or $s0, $zero, $a0                                 ## L:1181 |      ^ | u32<$s0> rdramAddr = rdramAddr_;
   ori $s4, $zero, %lo(RSPQ_SCRATCH_MEM)              ## L:1182 |      2 | s16<$s4> dmemAddr = RSPQ_SCRATCH_MEM;
@@ -816,11 +759,6 @@ T3DCmd_Patch:
   sw $a2, 4($s4)                                     ## L:1185 |      4 | store(opcode1, dmemAddr, 4);
   j DMAOut                                           ## L:1187 |      5 | DMAOut(size, rdramAddr, dmemAddr); ## Args: $t0, $s0, $s4
   addiu $t0, $zero, 7                                ## L:1180 |     *7 | u16<$t0> size = 8 - 1;
-
-T3DCmd_Prepared8:
-  j Theseus_Prepared8
-  nop
-
 OVERLAY_CODE_END:
 
 #define zero $0

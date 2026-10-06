@@ -5,8 +5,8 @@
 #include <t3d/tpx.h>
 #include <t3d/t3d.h>
 
-#include "rsp/rsp_tiny3d.h"
-#include "rsp/rsp_tinypx.h"
+#include <rsp/rsp_tiny3d.h>
+#include <rsp/rsp_tinypx.h>
 
 #ifndef RDPQ_WRITE_COUNT_UNKNOWN
   #define RDPQ_WRITE_COUNT_UNKNOWN -1

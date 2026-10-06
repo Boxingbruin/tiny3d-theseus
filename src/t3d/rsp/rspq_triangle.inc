@@ -14,3 +14,5 @@
 // #include "./rspq_triangle_ref.inc"
 #include "./rspq_triangle_rspl.inc"
 #include <rsp_prepared.inc>
+
+#include <rsp_work.inc>

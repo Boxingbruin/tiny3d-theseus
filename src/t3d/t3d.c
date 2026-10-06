@@ -3,8 +3,9 @@
 * @license MIT
 */
 #include <t3d/t3d.h>
-#include "rsp/rsp_tiny3d.h"
+#include <rsp/rsp_tiny3d.h>
 #include <rspq_profile.h>
+#include <rsp_work.h>
 
 #ifndef RDPQ_WRITE_COUNT_UNKNOWN
   #define RDPQ_WRITE_COUNT_UNKNOWN -1
@@ -478,41 +479,52 @@ void t3d_segment_set(uint8_t segmentId, void *address) {
   );
 }
 
-void t3d_tri_draw(uint32_t v0, uint32_t v1, uint32_t v2)
+// The native work cursor lives in the immutable command stream. Strips are
+// lowered once when model blocks are prepared, with explicit winding/restarts.
+#define T3D_WORK_TRIANGLES 16u
+// Four active clipping planes can expand a triangle into a seven-vertex polygon,
+// hence five output triangles, each at most 176 bytes with every attribute.
+#define T3D_TRIANGLE_OUTPUT_BOUND (5u * 176u)
+
+static void t3d_work_geometry(unsigned triangles)
 {
-  v0 *= VERT_OUTPUT_SIZE;
-  v1 *= VERT_OUTPUT_SIZE;
-  v2 *= VERT_OUTPUT_SIZE;
-
-  v0 += RSP_T3D_VERT_BUFFER & 0xFFFF;
-  v1 += RSP_T3D_VERT_BUFFER & 0xFFFF;
-  v2 += RSP_T3D_VERT_BUFFER & 0xFFFF;
-
-  __rdpq_autosync_use(AUTOSYNC_PIPE | AUTOSYNC_TILES | AUTOSYNC_TMEM(0));
-
-  uint32_t v12 = (v1 << 16) | v2;
-  rdpq_write(RDPQ_WRITE_COUNT_UNKNOWN,
-    T3D_RSP_ID, T3D_CMD_TRI_DRAW,
-    v0, v12
-  );
+  t3d_tri_sync();
+  rsp_work_begin(T3D_RSP_ID + (T3D_CMD_WORK << 24), RSP_WORK_GEOMETRY,
+    triangles * T3D_TRIANGLE_OUTPUT_BOUND);
 }
 
-static void t3d_tri_draw_sequence(uint32_t baseVertex, uint8_t polyCount, bool isQuad)
+static void t3d_tri_addresses(uint32_t a, uint32_t b, uint32_t c, bool flip)
 {
-  baseVertex *= VERT_OUTPUT_SIZE;
-  baseVertex += RSP_T3D_VERT_BUFFER & 0xFFFF;
-
-  uint32_t primIndices = isQuad ? 4 : 3;
-
-  // vertex DMEM address one past the last polygon
-  uint32_t baseVertexEnd = primIndices * polyCount * VERT_OUTPUT_SIZE;
-  baseVertexEnd += baseVertex;
-  // increment per step (+ 3*VERT_OUTPUT_SIZE), also serves as a flag for tri vs. quad
-  baseVertexEnd |= (VERT_OUTPUT_SIZE * (isQuad ? 1 : 0)) << 16;
-
   __rdpq_autosync_use(AUTOSYNC_PIPE | AUTOSYNC_TILES | AUTOSYNC_TMEM(0));
-  rdpq_write(RDPQ_WRITE_COUNT_UNKNOWN,
-    T3D_RSP_ID, T3D_CMD_TRI_SEQ, baseVertex, baseVertexEnd);
+  rdpq_write(RDPQ_WRITE_COUNT_UNKNOWN, T3D_RSP_ID, T3D_CMD_TRI_DRAW,
+    (a & 0xFFF) | ((uint32_t)flip << 16), ((b & 0xFFF) << 16) | (c & 0xFFF));
+}
+
+void t3d_tri_draw(uint32_t v0, uint32_t v1, uint32_t v2)
+{
+  const uint32_t base = RSP_T3D_VERT_BUFFER & 0xFFFF;
+  t3d_work_geometry(1);
+  t3d_tri_addresses(base + v0 * VERT_OUTPUT_SIZE, base + v1 * VERT_OUTPUT_SIZE,
+    base + v2 * VERT_OUTPUT_SIZE, false);
+}
+
+static void t3d_tri_draw_sequence(uint32_t baseVertex, uint32_t polyCount, bool isQuad)
+{
+  const uint32_t base = (RSP_T3D_VERT_BUFFER & 0xFFFF) + baseVertex * VERT_OUTPUT_SIZE;
+  unsigned emitted = 0, remaining = polyCount * (isQuad ? 2 : 1);
+  // Preserve the original sequence's two-pass quad order and exact vertex order.
+  for(unsigned pass = 0; pass < (isQuad ? 2u : 1u); ++pass) {
+    for(unsigned i = 0; i < polyCount; ++i) {
+      if(!(emitted % T3D_WORK_TRIANGLES)) {
+        t3d_work_geometry(MIN(remaining, T3D_WORK_TRIANGLES));
+      }
+      const uint32_t v = base + (i * (isQuad ? 4 : 3) + pass) * VERT_OUTPUT_SIZE;
+      t3d_tri_addresses(v + 2 * VERT_OUTPUT_SIZE, v, v + VERT_OUTPUT_SIZE, pass != 0);
+      ++emitted;
+      --remaining;
+    }
+  }
+  t3d_tri_sync();
 }
 
 void t3d_tri_draw_unindexed(uint32_t baseIndex, uint32_t triCount) {
@@ -523,29 +535,31 @@ void t3d_quad_draw_unindexed(uint32_t baseIndex, uint32_t quadCount) {
   t3d_tri_draw_sequence(baseIndex, quadCount, true);
 }
 
-inline static void t3d_tri_draw_strip_generic(int16_t* indexBuff, int count, bool doSync)
+static void t3d_tri_draw_strip_generic(const int16_t* indices, int count, bool doSync)
 {
-  uint32_t loadAddr = (uint32_t)PhysicalAddr(indexBuff);
-
-  uint32_t dmemAddr = (RSP_T3D_BSS_CLIP_BUFFER_TMP & 0xFFFF);
-  dmemAddr -= count * 2; // 16bit indices
-  dmemAddr &= ~7; // align start to 8 bytes
-  dmemAddr |= (doSync ? 0x8000 : 0); // make negative if we want to sync
-
-  __rdpq_autosync_use(AUTOSYNC_PIPE | AUTOSYNC_TILES | AUTOSYNC_TMEM(0));
-  rdpq_write(RDPQ_WRITE_COUNT_UNKNOWN,
-    T3D_RSP_ID, T3D_CMD_TRI_STRIP,
-    loadAddr, (dmemAddr << 16) | ((count*2-1) & 0xFFFF)
-  );
+  assert(count >= 3);
+  unsigned emitted = 0;
+  bool flip = true;
+  for(int i = 0; i + 2 < count; ++i) {
+    if(indices[i + 2] < 0) {
+      ++i;
+      flip = true;
+      continue;
+    }
+    if(!(emitted % T3D_WORK_TRIANGLES)) t3d_work_geometry(T3D_WORK_TRIANGLES);
+    t3d_tri_addresses((uint16_t)indices[i + 1], (uint16_t)indices[i],
+      (uint16_t)indices[i + 2], flip);
+    flip = !flip;
+    ++emitted;
+  }
+  if(doSync) t3d_tri_sync();
 }
 
-void t3d_tri_draw_strip(int16_t* indexBuff, int count)
-{
+void t3d_tri_draw_strip(int16_t* indexBuff, int count) {
   t3d_tri_draw_strip_generic(indexBuff, count, false);
 }
 
-void t3d_tri_draw_strip_and_sync(int16_t* indexBuff, int count)
-{
+void t3d_tri_draw_strip_and_sync(int16_t* indexBuff, int count) {
   t3d_tri_draw_strip_generic(indexBuff, count, true);
 }
 
@@ -792,3 +806,6 @@ void t3d_indexbuffer_convert(int16_t indices[], int count) {
 
 static_assert(RSP_T3D_CODE_Theseus_Prepared8 == RSP_T3D_CODE_CLIP_Theseus_Prepared8, "Prepared transport must be shared with clipping");
 static_assert(RSP_T3D_CODE_Theseus_Prepared8 < RSP_T3D_CODE_CLIPPING_CODE_TARGET, "Prepared transport must remain resident during clipping");
+
+static_assert(RSP_T3D_CODE_Theseus_Work == RSP_T3D_CODE_CLIP_Theseus_Work, "Work admission must remain resident during clipping");
+static_assert(RSP_T3D_CODE_Theseus_Work < RSP_T3D_CODE_CLIPPING_CODE_TARGET, "Work admission must precede the clipping overlay");
