@@ -248,6 +248,10 @@ void t3d_viewport_attach(T3DViewport *viewport);
  */
 void t3d_viewport_attach_geometry(T3DViewport *viewport);
 
+/** Attach viewport state using already-published fixed matrices owned by the caller.
+ * Both matrices must remain immutable until the RSP consumes them. */
+void t3d_viewport_attach_geometry_matrices(T3DViewport *viewport, const T3DMat4FP *projection, const T3DMat4FP *camera);
+
 /**
  * Returns the currently attached viewport.
  * @return viewport or NULL if none is attached

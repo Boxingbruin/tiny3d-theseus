@@ -614,7 +614,7 @@ void t3d_viewport_attach(T3DViewport *viewport) {
   t3d_viewport_attach_geometry(viewport);
 }
 
-void t3d_viewport_attach_geometry(T3DViewport *viewport) {
+static void viewport_attach_state(T3DViewport *viewport) {
   assertf(viewport != NULL, "Viewport is NULL!");
   currentViewport = viewport;
 
@@ -679,6 +679,17 @@ void t3d_viewport_attach_geometry(T3DViewport *viewport) {
     screenScaleFrac, (depthScaleFx & 0xFFFF) << 16 // fraction words of the s16.16 scales
   );
 
+}
+
+void t3d_viewport_attach_geometry_matrices(T3DViewport *viewport, const T3DMat4FP *projection, const T3DMat4FP *camera) {
+  assert(projection && camera);
+  viewport_attach_state(viewport);
+  t3d_matrix_set_proj(projection);
+  t3d_matrix_set(camera, false);
+}
+
+void t3d_viewport_attach_geometry(T3DViewport *viewport) {
+  viewport_attach_state(viewport);
   if(viewport->_matFP)
   {
     viewport->_bufferIdx = (viewport->_bufferIdx + 1) % viewport->_bufferCount;
