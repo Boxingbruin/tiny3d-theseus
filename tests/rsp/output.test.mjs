@@ -95,57 +95,51 @@ for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64]
   });
 }
 
-for (const [name, words] of [
-  ['Packets_Write8', [0xFC123456, 0xFEDCBA98]],
-  ['Packets_Write16', [0xE4123456, 0x789ABCDE, 0x0123FEDC, 0x89ABCDEF]],
-  ['Packets_Write16', [0xE5123456, 0x789ABCDE, 0xFEDC0123, 0xABCDEF89]],
-]) {
-  test(`prepared transport preserves ${words[0].toString(16)} and every payload bit`,
-    {skip: !process.env.PACKETS_ELF && 'Set PACKETS_ELF to test the Theseus transport'}, async () => {
-      const u = await Ucode.load(process.env.PACKETS_ELF); setup(u); dpReads(u, 0, 0);
-      // A long command's final argument is read from the queue, beyond a0-a3.
-      const size = words.length * 4 + 4;
-      words.forEach((word, i) => u.w32(u.sym.RSPQ_DMEM_BUFFER + 4 + i * 4, word));
-      const r = u.call(name, {$a0:0x12000000, $a1:words[0], $a2:words[1],
-        $a3:words[2] ?? 0, $gp:size}, ['RSPQ_Loop']);
-      assert.equal(r.pc, u.sym.RSPQ_Loop);
-      words.forEach((word, i) => assert.equal(u.rdr32(BASE + i * 4), word));
-      assert.equal(u.rdr32(BASE + words.length * 4), 0xA5A5A5A5);
-      assert.equal(u.r32(u.sym.RDPQ_CURRENT), BASE + words.length * 4);
-    });
-}
 
-for (const word of [0xFC123456, 0xE7000000, 0xFD10003F, 0xFFFFFFFF]) {
-  test(`resident prepared word preserves ${word.toString(16)} and geometry state`, async () => {
-    const u=await Ucode.load(); setup(u); dpReads(u,0,0);
-    u.w32(u.sym.RDPQ_CURRENT,BASE); u.w32(u.sym.RDPQ_SENTINEL,BASE+8);
-    const state=u.bytes(u.sym._RSPQ_SAVED_STATE_START,
-      u.sym._RSPQ_SAVED_STATE_END-u.sym._RSPQ_SAVED_STATE_START);
-    u.setVpr('$v10',[1,2,3,4,5,6,7,8]);
-    const result=u.command('Theseus_Prepared8',[0,word,0xFEDCBA98],{$gp:44});
-    assert.equal(result.pc,u.sym.RSPQ_Loop);
-    assert.equal(u.rdr32(BASE),word); assert.equal(u.rdr32(BASE+4),0xFEDCBA98);
-    assert.equal(u.rdr32(BASE+8),0xA5A5A5A5);
-    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE+8);
-    assert.equal(u.gpr('$gp'),44);
-    assert.deepEqual(u.vpr('$v10'),[1,2,3,4,5,6,7,8]);
-    assert.deepEqual(u.bytes(u.sym._RSPQ_SAVED_STATE_START,state.length),state);
+// All descriptor sizes share the resident handler. Exercise both payload
+// alignments, the end of the dispatcher buffer, exact capacity and rollover.
+for (const [producer, path] of [
+  ['geometry', undefined],
+  ['clipping', new URL('../../build/rsp/rsp_tiny3d_clipping.elf', import.meta.url).pathname],
+  ['standalone', process.env.PACKETS_ELF],
+]) for (const count of [1, 2, 4]) for (const offset of [0, 4, 256 - (4 + 8 * count) - 4]) {
+  test(`${producer} inline ${count} words at queue offset ${offset}`,
+    {skip: producer === 'standalone' && !path}, async () => {
+    const u = await Ucode.load(path); setup(u); dpReads(u, 0, 0);
+    const size = 4 + count * 8, end = offset + size;
+    const words = Array.from({length:count * 2}, (_, i) => (0xE4123456 ^ (i * 0x1234567)) >>> 0);
+    words.forEach((word, i) => u.w32(u.sym.RSPQ_DMEM_BUFFER + offset + 4 + i * 4, word));
+    u.w32(u.sym.RDPQ_CURRENT, BASE); u.w32(u.sym.RDPQ_SENTINEL, BASE + count * 8);
+    const state = u.bytes(u.sym._RSPQ_SAVED_STATE_START, u.sym._RSPQ_SAVED_STATE_END - u.sym._RSPQ_SAVED_STATE_START);
+    for (let r = 1; r < 30; ++r) u.setVpr('$v' + String(r).padStart(2, '0'), [r,2,3,4,5,6,7,8]);
+    assert.ok(u.call('Theseus_Prepared', {$gp:end, $t7:size}).returned);
+    words.forEach((word, i) => assert.equal(u.rdr32(BASE + i * 4), word));
+    assert.equal(u.rdr32(BASE + count * 8), 0xA5A5A5A5);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT), BASE + count * 8);
+    assert.equal(u.gpr('$gp'), end);
+    for (let r = 1; r < 30; ++r) assert.deepEqual(u.vpr('$v' + String(r).padStart(2, '0')), [r,2,3,4,5,6,7,8]);
+    assert.deepEqual(u.bytes(u.sym._RSPQ_SAVED_STATE_START, state.length), state);
   });
 }
 
-for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64],['same-buffer DMA busy',256,0]]) {
-  test(`resident prepared rollover waits before DMA while ${reason}`, async () => {
+for (const count of [1, 2, 4]) for (const [reason,status,sync] of [['FIFO full',512,0],['SYNC_FULL busy',64,64],['same-buffer DMA busy',256,0]]) {
+  test(`admission protects inline ${count} words before DMA while ${reason}`, async () => {
     const u=await Ucode.load(); setup(u);
     u.w8(u.sym.RDPQ_SYNCFULL_ONGOING,sync);
     const release=dpReads(u,status===256 ? BASE : 0,status);
-    const r=u.command('Theseus_Prepared8',[0,0xFC123456,0xFEDCBA98],{},['RSPQCmd_RdpSetBuffer_RdpWait']);
-    assert.equal(r.pc,u.sym.RSPQCmd_RdpSetBuffer_RdpWait);
+    const size=4+count*8;
+    for(let i=0;i<count*2;++i) u.w32(u.sym.RSPQ_DMEM_BUFFER+4+i*4,0xFC123456+i);
+    const r=u.command('Theseus_Work',[(1<<16)|count],{},['Theseus_WorkWait']);
+    assert.equal(r.pc,u.sym.Theseus_WorkWait);
     u.rsp.fn.rsp_set_halted(0); u.rsp.step(100);
     assert.equal(u.r32(u.sym.RDPQ_CURRENT),OLD);
     assert.equal(u.rdr32(BASE),0xA5A5A5A5);
     release(); assert.equal(u.runUntil([u.sym.RSPQ_Loop]).pc,u.sym.RSPQ_Loop);
-    assert.equal(u.rdr32(BASE),0xFC123456); assert.equal(u.rdr32(BASE+4),0xFEDCBA98);
-    assert.equal(u.rdr32(BASE+8),0xA5A5A5A5);
-    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE+8);
+    assert.equal(u.rdr32(BASE),0xA5A5A5A5);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE);
+    assert.ok(u.call('Theseus_Prepared',{$gp:size,$t7:size}).returned);
+    for(let i=0;i<count*2;++i) assert.equal(u.rdr32(BASE+i*4),0xFC123456+i);
+    assert.equal(u.rdr32(BASE+count*8),0xA5A5A5A5);
+    assert.equal(u.r32(u.sym.RDPQ_CURRENT),BASE+count*8);
   });
 }

@@ -815,8 +815,8 @@ void t3d_indexbuffer_convert(int16_t indices[], int count) {
   }
 }
 
-static_assert(RSP_T3D_CODE_Theseus_Prepared8 == RSP_T3D_CODE_CLIP_Theseus_Prepared8, "Prepared transport must be shared with clipping");
-static_assert(RSP_T3D_CODE_Theseus_Prepared8 < RSP_T3D_CODE_CLIPPING_CODE_TARGET, "Prepared transport must remain resident during clipping");
+static_assert(RSP_T3D_CODE_Theseus_Prepared == RSP_T3D_CODE_CLIP_Theseus_Prepared, "Prepared transport must be shared with clipping");
+static_assert(RSP_T3D_CODE_Theseus_Prepared < RSP_T3D_CODE_CLIPPING_CODE_TARGET, "Prepared transport must remain resident during clipping");
 
 static_assert(RSP_T3D_CODE_Theseus_Work == RSP_T3D_CODE_CLIP_Theseus_Work, "Work admission must remain resident during clipping");
 static_assert(RSP_T3D_CODE_Theseus_Work < RSP_T3D_CODE_CLIPPING_CODE_TARGET, "Work admission must precede the clipping overlay");

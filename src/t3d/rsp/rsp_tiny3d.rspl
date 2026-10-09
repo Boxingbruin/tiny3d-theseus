@@ -842,10 +842,17 @@ command<8> T3DCmd_Patch(u32 rdramAddr_, u32 opcode0, u32 opcode1) {
 }
 
 // Theseus owns this transport ABI and its shared output implementation.
-// Arguments already occupy a0/a1/a2; preserve them across the tail call.
-function Theseus_Prepared8();
+// Payload is read from the resident command buffer using the descriptor size.
+function Theseus_Prepared();
 command<13> T3DCmd_Prepared8(u32 ignored, u32 high, u32 low) {
-    goto Theseus_Prepared8;
+    goto Theseus_Prepared;
+}
+
+command<12> T3DCmd_Prepared16(u32 ignored, u32 w0, u32 w1, u32 w2, u32 w3) {
+    goto Theseus_Prepared;
+}
+command<14> T3DCmd_Prepared32(u32 ignored, u32 w0, u32 w1, u32 w2, u32 w3, u32 w4, u32 w5, u32 w6, u32 w7) {
+    goto Theseus_Prepared;
 }
 
 function Theseus_Work();

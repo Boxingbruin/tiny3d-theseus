@@ -120,8 +120,9 @@
     RSPQ_DefineCommand T3DCmd_SetFogState, 4
     RSPQ_DefineCommand T3DCmd_TriSync, 4
     RSPQ_DefineCommand Theseus_Work, 4
-    RSPQ_DefineCommand RSPQ_Loop, 4
-    RSPQ_DefineCommand Theseus_Prepared8, 12
+    RSPQ_DefineCommand Theseus_Prepared, 20
+    RSPQ_DefineCommand Theseus_Prepared, 12
+    RSPQ_DefineCommand Theseus_Prepared, 36
   RSPQ_EndOverlayHeader
 
   RSPQ_BeginSavedState

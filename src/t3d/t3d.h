@@ -36,10 +36,9 @@ enum T3DCmd {
   T3D_CMD_FOG_STATE    = 0x9,
   T3D_CMD_TRI_SYNC     = 0xA,
   T3D_CMD_WORK         = 0xB,
-  // 0xC is reserved.
+  T3D_CMD_PREPARED16   = 0xC,
   T3D_CMD_PREPARED8    = 0xD,
-  //                   = 0xD,
-  //                   = 0xE,
+  T3D_CMD_PREPARED32   = 0xE,
   //                   = 0xF,
 };
 
