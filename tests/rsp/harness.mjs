@@ -39,8 +39,9 @@ export class Ucode {
     /** symbol name -> 13-bit RSP address (DMEM 0x000-0xFFF, IMEM 0x1000-0x1FFF) */
     this.sym = {};
     for (const [k, v] of Object.entries(elf.symbols)) this.sym[k] = v & 0x1FFF;
-    // return stub: a 'break' at the end of IMEM, used as $ra for function calls
-    this.RET_STUB = 0x1FF8;
+    // Function calls return to the dispatcher. runUntil temporarily traps here;
+    // there is no unused tail once the linked microcode fills IMEM.
+    this.RET_STUB = this.sym.RSPQ_Loop;
   }
 
   /** Reload text/data from the ELF and reset all registers. */
@@ -50,7 +51,6 @@ export class Ucode {
     for (let i = 0; i < 0x1000; i += 4) { rsp.IMEM.setUint32(i, 0, true); rsp.DMEM.setUint32(i, 0, true); }
     this.#loadBE(rsp.IMEM, this.elf.bytes('.text'));
     this.#loadBE(rsp.DMEM, this.elf.bytes('.data'));
-    rsp.IMEM.setUint32(this.RET_STUB & 0xFFF, 0x0000000D, true); // break
     for (let r = 1; r < 32; r++) rsp.setGPR(r, 0);
     for (let r = 0; r < 32; r++) rsp.setVPR(r, [0, 0, 0, 0, 0, 0, 0, 0]);
     // constants rspq sets up before every command (vshift / vshift8)
