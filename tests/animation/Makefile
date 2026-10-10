@@ -8,3 +8,9 @@ N64_ROM_TITLE := "Animation startup"
 all: animation.z64
 $(BUILD_DIR)/animation.elf: $(BUILD_DIR)/main.o
 -include $(wildcard $(BUILD_DIR)/*.d)
+
+$(BUILD_DIR)/fixtures.stamp: fixtures.py
+	python3 fixtures.py
+	@touch $@
+$(BUILD_DIR)/animation.dfs: $(BUILD_DIR)/fixtures.stamp
+animation.z64: $(BUILD_DIR)/animation.dfs
